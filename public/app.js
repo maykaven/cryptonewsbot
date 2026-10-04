@@ -14,24 +14,42 @@ const state = {
   limit: PAGE,
   connected: false,
   notify: false,
+  lang: 'en',
 };
 
 // ── Utilities ──
+const t = () => I18N[state.lang];
 const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const signed = (n) => (n > 0 ? `+${n}` : `${n}`);
 const tone = (s) => (s >= 12 ? 'bull' : s <= -12 ? 'bear' : 'neutral');
 const arrow = (s) => (s >= 12 ? '▲' : s <= -12 ? '▼' : '•');
-const shortLabel = (label) => label.replace('Very ', 'V. ');
+
+function labelFor(score) {
+  if (score >= 40) return 'Very Bullish';
+  if (score >= 12) return 'Bullish';
+  if (score > -12) return 'Neutral';
+  if (score > -40) return 'Bearish';
+  return 'Very Bearish';
+}
+const labelText = (score) => t().labels[labelFor(score)];
+const shortLabelText = (score) => t().shortLabels[labelFor(score)];
+
+// Localized story text; falls back to English when no translation exists yet.
+const zh = () => state.lang === 'zh';
+const titleOf = (it) => (zh() && it.titleZh) || it.title;
+const descOf = (it) => (zh() && it.descZh) || it.description;
+const reasonOf = (it) => (zh() && it.aiReasonZh) || it.aiReason;
 
 function timeAgo(ts) {
+  const ago = t().ago;
   const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
-  if (s < 60) return `${s}s ago`;
+  if (s < 60) return ago.s(s);
   const m = Math.round(s / 60);
-  if (m < 60) return `${m}m ago`;
+  if (m < 60) return ago.m(m);
   const h = Math.round(m / 60);
-  if (h < 24) return `${h}h ago`;
-  return `${Math.round(h / 24)}d ago`;
+  if (h < 24) return ago.h(h);
+  return ago.d(Math.round(h / 24));
 }
 
 const store = {
@@ -72,9 +90,9 @@ function renderGauge(mood) {
   const color = `var(--${tone(v)})`;
   const [mx, my] = gaugePoint(v);
   const ticks = [-100, -50, 0, 50, 100]
-    .map((t) => {
-      const [x1, y1] = gaugePoint(t, GR + 9);
-      const [x2, y2] = gaugePoint(t, GR + 14);
+    .map((s) => {
+      const [x1, y1] = gaugePoint(s, GR + 9);
+      const [x2, y2] = gaugePoint(s, GR + 14);
       return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="var(--text-3)" stroke-width="1"/>`;
     })
     .join('');
@@ -85,8 +103,8 @@ function renderGauge(mood) {
     ${ticks}
     ${has && v !== 0 ? `<path d="${v > 0 ? arcPath(0, v) : arcPath(v, 0)}" fill="none" stroke="${color}" stroke-width="14" stroke-linecap="round"/>` : ''}
     ${has ? `<circle cx="${mx}" cy="${my}" r="9" fill="${color}" stroke="var(--surface)" stroke-width="3"/>` : ''}
-    <text x="14" y="114" font-size="9" fill="var(--text-3)" text-anchor="middle">Bear</text>
-    <text x="186" y="114" font-size="9" fill="var(--text-3)" text-anchor="middle">Bull</text>`;
+    <text x="14" y="114" font-size="9" fill="var(--text-3)" text-anchor="middle">${esc(t().bear)}</text>
+    <text x="186" y="114" font-size="9" fill="var(--text-3)" text-anchor="middle">${esc(t().bull)}</text>`;
 }
 
 // ── Trend chart ──
@@ -97,14 +115,14 @@ function renderTrend(trend) {
   const P = { l: 34, r: 10, t: 8, b: 22 };
   const pts = trend.filter((d) => d.mood != null);
   if (pts.length < 2) {
-    el.innerHTML = `<svg viewBox="0 0 ${W} ${H}"><text class="empty-msg" x="${W / 2}" y="${H / 2}" text-anchor="middle">Collecting data…</text></svg>`;
+    el.innerHTML = `<svg viewBox="0 0 ${W} ${H}"><text class="empty-msg" x="${W / 2}" y="${H / 2}" text-anchor="middle">${esc(t().collecting)}</text></svg>`;
     return;
   }
   const maxAbs = Math.max(...pts.map((d) => Math.abs(d.mood)));
   const dom = Math.min(100, Math.max(25, Math.ceil(maxAbs / 25) * 25));
   const t0 = trend[0].t;
   const t1 = trend.at(-1).t;
-  const x = (t) => P.l + ((t - t0) / (t1 - t0)) * (W - P.l - P.r);
+  const x = (ts) => P.l + ((ts - t0) / (t1 - t0)) * (W - P.l - P.r);
   const y = (v) => P.t + ((dom - v) / (2 * dom)) * (H - P.t - P.b);
 
   // Split into contiguous segments (gaps where mood is null)
@@ -120,15 +138,18 @@ function renderTrend(trend) {
     .map((s) => `M${x(s[0].t)},${y(0)}L` + s.map((d) => `${x(d.t).toFixed(1)},${y(d.mood).toFixed(1)}`).join('L') + `L${x(s.at(-1).t)},${y(0)}Z`)
     .join('');
 
+  const locale = t().locale;
   const yTicks = [dom, dom / 2, 0, -dom / 2, -dom];
   const xTicks = trend.filter((d) => new Date(d.t).getHours() % 12 === 0);
-  const fmtX = (t) => {
-    const d = new Date(t);
-    return d.getHours() === 0 ? d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : d.toLocaleTimeString(undefined, { hour: 'numeric' });
+  const fmtX = (ts) => {
+    const d = new Date(ts);
+    return d.getHours() === 0
+      ? d.toLocaleDateString(locale, { month: 'short', day: 'numeric' })
+      : d.toLocaleTimeString(locale, { hour: 'numeric' });
   };
 
   el.innerHTML = `
-  <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Market mood over the last 48 hours">
+  <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(t().trendAria)}">
     <defs>
       <clipPath id="clipUp"><rect x="0" y="0" width="${W}" height="${y(0)}"/></clipPath>
       <clipPath id="clipDn"><rect x="0" y="${y(0)}" width="${W}" height="${H}"/></clipPath>
@@ -136,7 +157,7 @@ function renderTrend(trend) {
     <g class="grid">${yTicks.filter((v) => v !== 0).map((v) => `<line x1="${P.l}" x2="${W - P.r}" y1="${y(v)}" y2="${y(v)}"/>`).join('')}</g>
     <g class="axis">
       ${yTicks.map((v) => `<text x="${P.l - 6}" y="${y(v) + 3}" text-anchor="end">${signed(v)}</text>`).join('')}
-      ${xTicks.map((d) => `<text x="${x(d.t)}" y="${H - 6}" text-anchor="middle">${fmtX(d.t)}</text>`).join('')}
+      ${xTicks.map((d) => `<text x="${x(d.t)}" y="${H - 6}" text-anchor="middle">${esc(fmtX(d.t))}</text>`).join('')}
     </g>
     <path class="area-bull" d="${area}" clip-path="url(#clipUp)"/>
     <path class="area-bear" d="${area}" clip-path="url(#clipDn)"/>
@@ -157,9 +178,9 @@ function renderTrend(trend) {
   const move = (ev) => {
     const r = svg.getBoundingClientRect();
     const px = ((ev.clientX - r.left) / r.width) * W;
-    const t = t0 + ((px - P.l) / (W - P.l - P.r)) * (t1 - t0);
+    const ts = t0 + ((px - P.l) / (W - P.l - P.r)) * (t1 - t0);
     let best = null;
-    for (const d of trend) if (d.mood != null && (!best || Math.abs(d.t - t) < Math.abs(best.t - t))) best = d;
+    for (const d of trend) if (d.mood != null && (!best || Math.abs(d.t - ts) < Math.abs(best.t - ts))) best = d;
     if (!best) return;
     hover.setAttribute('visibility', 'visible');
     cross.setAttribute('x1', x(best.t));
@@ -167,9 +188,9 @@ function renderTrend(trend) {
     marker.setAttribute('cx', x(best.t));
     marker.setAttribute('cy', y(best.mood));
     marker.setAttribute('fill', `var(--${tone(best.mood)})`);
-    const when = new Date(best.t).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+    const when = new Date(best.t).toLocaleString(locale, { weekday: 'short', hour: 'numeric', minute: '2-digit' });
     showTip(
-      `<div>${esc(when)}</div><div>Mood <b>${signed(best.mood)}</b> · ${esc(labelFor(best.mood))}</div><div class="muted">${best.count} ${best.count === 1 ? 'story' : 'stories'} that hour</div>`,
+      `<div>${esc(when)}</div><div>${esc(t().mood)} <b>${signed(best.mood)}</b> · ${esc(labelText(best.mood))}</div><div class="muted">${esc(t().thatHour(best.count))}</div>`,
       ev.clientX,
       ev.clientY,
     );
@@ -178,51 +199,49 @@ function renderTrend(trend) {
   hit.addEventListener('pointerleave', () => { hover.setAttribute('visibility', 'hidden'); hideTip(); });
 }
 
-function labelFor(score) {
-  if (score >= 40) return 'Very Bullish';
-  if (score >= 12) return 'Bullish';
-  if (score > -12) return 'Neutral';
-  if (score > -40) return 'Bearish';
-  return 'Very Bearish';
-}
-
 // ── Stats cards ──
 function renderStats() {
   const s = state.stats;
-  if (!s) return;
+  if (!s) {
+    renderGauge(null);
+    $('#moodLabel').textContent = t().waiting;
+    return;
+  }
   renderGauge(s.mood);
   const mv = $('#moodValue');
   mv.textContent = s.mood == null ? '—' : signed(s.mood);
   mv.className = `mood-value ${s.mood >= 12 ? 'bull-text' : s.mood <= -12 ? 'bear-text' : ''}`;
-  $('#moodLabel').textContent = s.moodLabel;
+  $('#moodLabel').textContent = s.mood == null ? t().noData : labelText(s.mood);
   const ch = s.moodChange6h;
   $('#moodChange').innerHTML =
-    ch == null ? '' : `<span class="${ch > 0 ? 'bull-text' : ch < 0 ? 'bear-text' : ''}">${ch > 0 ? '▲' : ch < 0 ? '▼' : '■'} ${Math.abs(ch)}</span> vs 6h ago`;
+    ch == null ? '' : `<span class="${ch > 0 ? 'bull-text' : ch < 0 ? 'bear-text' : ''}">${ch > 0 ? '▲' : ch < 0 ? '▼' : '■'} ${Math.abs(ch)}</span> ${esc(t().vs6h)}`;
 
   renderTrend(s.trend);
 
   const { bullish, neutral, bearish } = s.counts;
   const total = bullish + neutral + bearish;
-  $('#total24').textContent = `· ${total} stories`;
+  $('#total24').textContent = `· ${t().stories(total)}`;
   const bar = $('#splitBar');
-  bar.setAttribute('aria-label', `${bullish} bullish, ${neutral} neutral, ${bearish} bearish`);
+  bar.setAttribute('aria-label', t().splitAria(bullish, neutral, bearish));
   bar.innerHTML = total
-    ? [['bull', bullish, 'Bullish'], ['neutral', neutral, 'Neutral'], ['bear', bearish, 'Bearish']]
+    ? [['bull', bullish, t().bullBtn], ['neutral', neutral, t().neutralBtn], ['bear', bearish, t().bearBtn]]
         .filter(([, n]) => n > 0)
-        .map(([k, n, l]) => `<span class="s-${k}" style="flex-grow:${n}" data-tip="${l}: <b>${n}</b> (${Math.round((n / total) * 100)}%)"></span>`)
+        .map(([k, n, l]) => `<span class="s-${k}" style="flex-grow:${n}" data-tip="${esc(l)}: <b>${n}</b> (${Math.round((n / total) * 100)}%)"></span>`)
         .join('')
     : '';
   $('#splitLegend').innerHTML = [
-    ['bull', bullish, '▲ Bullish'],
-    ['neutral', neutral, 'Neutral'],
-    ['bear', bearish, '▼ Bearish'],
+    ['bull', bullish, t().bullBtn],
+    ['neutral', neutral, t().neutralBtn],
+    ['bear', bearish, t().bearBtn],
   ]
-    .map(([k, n, l]) => `<li><b>${n}</b><span class="swatch" style="background:var(--${k})"></span>${l}</li>`)
+    .map(([k, n, l]) => `<li><b>${n}</b><span class="swatch" style="background:var(--${k})"></span>${esc(l)}</li>`)
     .join('');
 
+  // Prefer the full story from the feed so translated titles are available.
+  const full = (ref) => ref && (state.items.find((i) => i.id === ref.id) ?? ref);
   const ex = [];
-  if (s.mostBullish) ex.push(extremeHtml(s.mostBullish, 'Top bullish'));
-  if (s.mostBearish) ex.push(extremeHtml(s.mostBearish, 'Top bearish'));
+  if (s.mostBullish) ex.push(extremeHtml(full(s.mostBullish), t().topBull));
+  if (s.mostBearish) ex.push(extremeHtml(full(s.mostBearish), t().topBear));
   $('#extremes').innerHTML = ex.join('');
 
   const coins = $('#coins');
@@ -231,21 +250,21 @@ function renderStats() {
         .map((c) => {
           const w = Math.abs(c.avg) / 2; // % of full bar (half bar = 100)
           const left = c.avg >= 0 ? 50 : 50 - w;
-          return `<li><button data-coin="${esc(c.coin)}" class="${state.filter.coin === c.coin ? 'active' : ''}" title="Filter to ${esc(c.coin)}">
+          return `<li><button data-coin="${esc(c.coin)}" class="${state.filter.coin === c.coin ? 'active' : ''}" title="${esc(t().filterTo(c.coin))}">
             <span class="coin-sym">${esc(c.coin)}</span>
             <span class="coin-bar"><i style="left:${left}%;width:${w}%;background:var(--${tone(c.avg)})"></i></span>
             <span class="coin-score">${signed(c.avg)}</span>
-            <span class="coin-count">${c.count} ${c.count === 1 ? 'story' : 'stories'}</span>
+            <span class="coin-count">${esc(t().stories(c.count))}</span>
           </button></li>`;
         })
         .join('')
-    : '<li class="none">No coin-specific stories yet.</li>';
+    : `<li class="none">${esc(t().noCoins)}</li>`;
 }
 
 function extremeHtml(it, label) {
   return `<a class="extreme" href="${esc(it.link)}" target="_blank" rel="noopener noreferrer">
     <span class="coin-score ${it.score > 0 ? 'bull-text' : 'bear-text'}">${arrow(it.score)}${signed(it.score)}</span>
-    <span><span class="muted">${label} · ${esc(it.source)}</span><br><span class="ex-title">${esc(it.title)}</span></span>
+    <span><span class="muted">${esc(label)} · ${esc(it.source)}</span><br><span class="ex-title">${esc(titleOf(it))}</span></span>
   </a>`;
 }
 
@@ -257,7 +276,7 @@ function filtered() {
     if (f.sent !== 'all' && tone(it.score) !== f.sent) return false;
     if (f.source && it.sourceId !== f.source) return false;
     if (f.coin && !it.coins.includes(f.coin)) return false;
-    if (q && !`${it.title} ${it.description}`.toLowerCase().includes(q)) return false;
+    if (q && !`${it.title} ${it.description} ${it.titleZh ?? ''} ${it.descZh ?? ''}`.toLowerCase().includes(q)) return false;
     return true;
   });
   if (f.sort === 'bull') list = [...list].sort((a, b) => b.score - a.score || b.published - a.published);
@@ -267,24 +286,27 @@ function filtered() {
 }
 
 function storyHtml(it) {
-  const t = tone(it.score);
-  const why =
-    it.scoredBy === 'ai' && it.aiReason
-      ? `<span class="ai-tag">Claude</span>${esc(it.aiReason)}`
-      : (it.drivers || [])
-          .slice(0, 4)
-          .map((d) => `<span class="drv ${d.weight > 0 ? 'bull-text' : 'bear-text'}">${esc(d.term)} ${signed(d.weight)}</span>`)
-          .join('') || '<span class="drv">no strong signals</span>';
+  const tn = tone(it.score);
+  const reason = it.scoredBy === 'ai' ? reasonOf(it) : '';
+  const why = reason
+    ? `<span class="ai-tag">Claude</span>${esc(reason)}`
+    : (it.drivers || [])
+        .slice(0, 4)
+        .map((d) => `<span class="drv ${d.weight > 0 ? 'bull-text' : 'bear-text'}">${esc(d.term)} ${signed(d.weight)}</span>`)
+        .join('') || `<span class="drv">${esc(t().noSignals)}</span>`;
   const coins = it.coins.map((c) => `<button class="chip" data-coin="${esc(c)}">${esc(c)}</button>`).join('');
+  const translated = zh() && it.titleZh;
+  const untranslated = zh() && !it.titleZh ? `<span class="chip chip-muted" title="${esc(t().englishOnlyTitle)}">${esc(t().englishOnly)}</span>` : '';
+  const desc = descOf(it);
   return `<li class="story${state.freshIds.has(it.id) ? ' fresh' : ''}" data-id="${esc(it.id)}">
-    <div class="badge ${t}" title="${esc(it.label)} (score ${signed(it.score)} of ±100)">
+    <div class="badge ${tn}" title="${esc(t().scoreTitle(labelText(it.score), signed(it.score)))}">
       <span class="val">${arrow(it.score)}${Math.abs(it.score)}</span>
-      <span class="lbl">${esc(shortLabel(it.label))}</span>
+      <span class="lbl">${esc(shortLabelText(it.score))}</span>
     </div>
     <div>
-      <h3 class="story-title"><a href="${esc(it.link)}" target="_blank" rel="noopener noreferrer">${esc(it.title)}</a></h3>
-      <div class="meta"><span class="src">${esc(it.source)}</span><time data-ts="${it.published}">${timeAgo(it.published)}</time>${coins}</div>
-      ${it.description ? `<p class="desc">${esc(it.description)}</p>` : ''}
+      <h3 class="story-title"><a href="${esc(it.link)}" target="_blank" rel="noopener noreferrer"${translated ? ` title="${esc(t().original)}: ${esc(it.title)}"` : ''}>${esc(titleOf(it))}</a></h3>
+      <div class="meta"><span class="src">${esc(it.source)}</span><time data-ts="${it.published}">${timeAgo(it.published)}</time>${untranslated}${coins}</div>
+      ${desc ? `<p class="desc">${esc(desc)}</p>` : ''}
       <div class="why">${why}</div>
     </div>
   </li>`;
@@ -295,13 +317,13 @@ function renderFeed() {
   const shown = list.slice(0, state.limit);
   $('#feed').innerHTML = shown.map(storyHtml).join('');
   $('#moreBtn').hidden = list.length <= state.limit;
-  $('#moreBtn').textContent = `Show more (${list.length - state.limit} remaining)`;
+  $('#moreBtn').textContent = t().showMore(list.length - state.limit);
   $('#empty').hidden = list.length > 0 || state.items.length === 0;
   state.freshIds.clear();
 
   const cf = $('#coinFilter');
   cf.hidden = !state.filter.coin;
-  if (state.filter.coin) cf.innerHTML = `Coin: ${esc(state.filter.coin)} <button aria-label="Clear coin filter">×</button>`;
+  if (state.filter.coin) cf.innerHTML = `${esc(t().coin)}: ${esc(state.filter.coin)} <button aria-label="${esc(t().clearCoin)}">×</button>`;
 }
 
 function renderSkeleton() {
@@ -313,10 +335,10 @@ function renderSources() {
   const feeds = state.status?.feeds ?? {};
   const current = sel.value;
   sel.innerHTML =
-    '<option value="">All sources</option>' +
+    `<option value="">${esc(t().allSources)}</option>` +
     Object.entries(feeds)
       .sort((a, b) => a[1].name.localeCompare(b[1].name))
-      .map(([id, f]) => `<option value="${esc(id)}">${esc(f.name)}${f.ok === false ? ' (offline)' : ''}</option>`)
+      .map(([id, f]) => `<option value="${esc(id)}">${esc(f.name)}${f.ok === false ? ` (${esc(t().offline)})` : ''}</option>`)
       .join('');
   sel.value = current;
 }
@@ -325,27 +347,30 @@ function renderSources() {
 function renderStatus() {
   const st = state.status;
   const live = $('#live');
-  live.className = `live ${state.connected ? 'on' : 'off'}`;
-  $('#liveText').textContent = !state.connected
-    ? 'Reconnecting…'
-    : st?.lastPoll
-      ? `Live · checked ${timeAgo(st.lastPoll)}`
-      : 'Live';
+  live.className = `live ${state.connected ? 'on' : st ? 'off' : ''}`;
+  $('#liveText').textContent = !st
+    ? t().connecting
+    : !state.connected
+      ? t().reconnecting
+      : st.lastPoll
+        ? t().liveChecked(timeAgo(st.lastPoll))
+        : t().live;
+  live.title = $('#liveText').textContent;
   if (!st) return;
   const engine = $('#engine');
   if (st.ai.enabled) {
-    engine.textContent = 'Claude scoring';
-    engine.title = `Stories scored by ${st.ai.model}; built-in engine fills in until Claude responds`;
+    engine.textContent = t().engineAI;
+    engine.title = t().engineAITitle(st.ai.model);
   } else {
-    engine.textContent = 'Built-in scoring';
-    engine.title = `Crypto sentiment lexicon. Claude scoring off: ${st.ai.reason}`;
+    engine.textContent = t().engineLex;
+    engine.title = t().engineLexTitle(st.ai.reason);
   }
   const feeds = Object.values(st.feeds);
   const ok = feeds.filter((f) => f.ok).length;
   const bad = feeds.filter((f) => f.ok === false);
   const health = $('#feedHealth');
-  health.textContent = `${ok}/${feeds.length} sources online · refreshes every ${st.pollSeconds}s`;
-  health.title = bad.length ? `Offline: ${bad.map((f) => `${f.name} (${f.error})`).join(', ')}` : 'All sources responding';
+  health.textContent = t().sourcesOnline(ok, feeds.length, st.pollSeconds);
+  health.title = bad.length ? t().offlineList(bad.map((f) => `${f.name} (${f.error})`).join(', ')) : t().allOk;
 }
 
 // ── Notifications ──
@@ -354,13 +379,16 @@ function maybeNotify(items) {
   const recent = Date.now() - 60 * 60_000;
   for (const it of items) {
     if (Math.abs(it.score) < ALERT_THRESHOLD || it.published < recent) continue;
-    const n = new Notification(`${arrow(it.score)} ${signed(it.score)} ${it.label}`, { body: `${it.title}\n— ${it.source}`, tag: it.id });
+    const n = new Notification(`${arrow(it.score)} ${signed(it.score)} ${labelText(it.score)}`, {
+      body: `${titleOf(it)}\n— ${it.source}`,
+      tag: it.id,
+    });
     n.onclick = () => window.open(it.link, '_blank', 'noopener');
   }
 }
 
 async function toggleNotify() {
-  if (!('Notification' in window)) return alert('This browser does not support notifications.');
+  if (!('Notification' in window)) return alert(t().noNotify);
   if (!state.notify && Notification.permission !== 'granted') {
     const p = await Notification.requestPermission();
     if (p !== 'granted') return;
@@ -372,7 +400,31 @@ async function toggleNotify() {
 function syncNotifyBtn() {
   const b = $('#notifyBtn');
   b.setAttribute('aria-pressed', String(state.notify));
-  b.title = state.notify ? `Alerts on: stories scoring ±${ALERT_THRESHOLD} or more` : 'Alert me on major market-moving news';
+  b.title = state.notify ? t().alertsOn(ALERT_THRESHOLD) : t().alertsOff;
+  b.setAttribute('aria-label', b.title);
+}
+
+// ── Language ──
+function applyLang(lang) {
+  state.lang = I18N[lang] ? lang : 'en';
+  const dict = t();
+  document.documentElement.lang = state.lang === 'zh' ? 'zh-CN' : 'en';
+  document.title = dict.appName;
+  document.querySelectorAll('[data-i18n]').forEach((el) => { el.textContent = dict[el.dataset.i18n]; });
+  document.querySelectorAll('[data-i18n-ph]').forEach((el) => { el.placeholder = dict[el.dataset.i18nPh]; });
+  document.querySelectorAll('[data-i18n-aria]').forEach((el) => { el.setAttribute('aria-label', dict[el.dataset.i18nAria]); });
+  document.querySelectorAll('[data-i18n-title]').forEach((el) => {
+    el.title = dict[el.dataset.i18nTitle];
+    el.setAttribute('aria-label', el.title);
+  });
+  document.querySelectorAll('#langBtn [data-lang]').forEach((el) => el.classList.toggle('active', el.dataset.lang === state.lang));
+
+  syncNotifyBtn();
+  renderStatus();
+  renderStats();
+  renderSources();
+  if (state.items.length) renderFeed();
+  showPendingBanner();
 }
 
 // ── Live connection ──
@@ -386,7 +438,7 @@ function mergeItems(items) {
 function showPendingBanner() {
   const b = $('#newBanner');
   b.hidden = state.pending.length === 0;
-  b.textContent = `▲ ${state.pending.length} new ${state.pending.length === 1 ? 'story' : 'stories'} — show`;
+  b.textContent = t().newStories(state.pending.length);
 }
 
 function flushPending() {
@@ -488,9 +540,14 @@ $('#refreshBtn').addEventListener('click', async () => {
   setTimeout(() => $('#refreshBtn').classList.remove('spin'), 15000);
 });
 $('#notifyBtn').addEventListener('click', toggleNotify);
+$('#langBtn').addEventListener('click', () => {
+  const next = state.lang === 'en' ? 'zh' : 'en';
+  store.set('lang', next);
+  applyLang(next);
+});
 
-function applyTheme(t) {
-  if (t) document.documentElement.dataset.theme = t;
+function applyTheme(theme) {
+  if (theme) document.documentElement.dataset.theme = theme;
   else delete document.documentElement.dataset.theme;
 }
 $('#themeBtn').addEventListener('click', () => {
@@ -506,14 +563,14 @@ new ResizeObserver(() => state.stats && renderTrend(state.stats.trend)).observe(
 
 // Keep relative times fresh
 setInterval(() => {
-  document.querySelectorAll('time[data-ts]').forEach((t) => { t.textContent = timeAgo(Number(t.dataset.ts)); });
+  document.querySelectorAll('time[data-ts]').forEach((el) => { el.textContent = timeAgo(Number(el.dataset.ts)); });
   renderStatus();
 }, 15000);
 
 // ── Boot ──
 applyTheme(store.get('theme'));
 state.notify = store.get('notify') === '1' && 'Notification' in window && Notification.permission === 'granted';
-syncNotifyBtn();
-renderGauge(null);
+const savedLang = store.get('lang');
+applyLang(savedLang || (/^zh\b/i.test(navigator.language) ? 'zh' : 'en'));
 renderSkeleton();
 connect();

@@ -21,6 +21,7 @@ Requires Node.js 22.9+.
 - **48h mood trend**, a bullish/neutral/bearish split, top movers, and **per-coin sentiment** (click a coin to filter).
 - Filters for search, sentiment, source and coin; sort by latest, most bullish, most bearish or biggest movers.
 - Optional **desktop alerts** (bell icon) for stories scoring ±60 or more.
+- **English / 中文 toggle** in the header. The whole UI switches language, and Claude translates headlines, summaries and its reasoning into Simplified Chinese. Stories without a Claude translation (older than 24h, or when Claude is off) stay in English and are tagged 英文.
 - Light/dark theme, mobile layout.
 
 ## Scoring engines
@@ -61,9 +62,9 @@ Copy `.env.example` to `.env`. Every setting is optional:
 server.js           HTTP server, polling loop, SSE broadcast, persistence (data/news.json)
 lib/feeds.js        Feed list + dependency-free RSS/Atom parser
 lib/sentiment.js    Built-in sentiment lexicon, coin tagging, market-impact weights
-lib/ai.js           Optional Claude scorer (structured JSON output)
+lib/ai.js           Optional Claude scorer + Chinese translation (structured JSON output)
 lib/stats.js        Mood index, hourly trend, per-coin aggregates
-public/             Dashboard (vanilla HTML/CSS/JS, no build step)
+public/             Dashboard (vanilla HTML/CSS/JS, no build step); UI strings in public/i18n.js
 test/               Unit tests: npm test
 ```
 

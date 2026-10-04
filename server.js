@@ -173,13 +173,16 @@ async function runAIScoring() {
   aiRunning = true;
   const now = Date.now();
   const pending = sortedItems().filter(
-    (it) => !Number.isFinite(it.aiScore) && it.aiAttempts < AI_MAX_ATTEMPTS && now - it.published < AI_WINDOW,
+    (it) => !it.titleZh && it.aiAttempts < AI_MAX_ATTEMPTS && now - it.published < AI_WINDOW,
   );
   pending.forEach((it) => it.aiAttempts++);
   let changed = 0;
-  await scoreWithAI(pending, (item, { score, reason }) => {
+  await scoreWithAI(pending, (item, { score, reason, titleZh, summaryZh, reasonZh }) => {
     item.aiScore = score;
     item.aiReason = reason;
+    item.titleZh = titleZh;
+    item.descZh = summaryZh;
+    item.aiReasonZh = reasonZh;
     applyScore(item);
     changed++;
     broadcast('update', item);
