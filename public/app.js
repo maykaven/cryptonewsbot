@@ -3,6 +3,10 @@
 const $ = (sel) => document.querySelector(sel);
 const PAGE = 60;
 const ALERT_THRESHOLD = 60;
+// "static" when published to GitHub Pages: no server, so poll data.json instead of streaming.
+const STATIC = document.querySelector('meta[name="app-mode"]')?.content === 'static';
+const STATIC_RELOAD_MS = 60_000;
+const STALE_MS = 45 * 60_000;
 
 const state = {
   items: [],
@@ -347,13 +351,14 @@ function renderSources() {
 function renderStatus() {
   const st = state.status;
   const live = $('#live');
-  live.className = `live ${state.connected ? 'on' : st ? 'off' : ''}`;
+  const stale = STATIC && st?.lastPoll && Date.now() - st.lastPoll > STALE_MS;
+  live.className = `live ${state.connected && !stale ? 'on' : st ? 'off' : ''}`;
   $('#liveText').textContent = !st
     ? t().connecting
     : !state.connected
       ? t().reconnecting
       : st.lastPoll
-        ? t().liveChecked(timeAgo(st.lastPoll))
+        ? (STATIC ? t().updated : t().liveChecked)(timeAgo(st.lastPoll))
         : t().live;
   live.title = $('#liveText').textContent;
   if (!st) return;
@@ -449,7 +454,52 @@ function flushPending() {
   renderFeed();
 }
 
+// Static mode: replace state with the latest published snapshot, surfacing new stories.
+function applySnapshot(d, first) {
+  state.stats = d.stats;
+  state.status = d.status;
+  state.connected = true;
+  if (first) {
+    state.items = d.items;
+  } else {
+    const byId = new Map(d.items.map((i) => [i.id, i]));
+    const known = new Set([...state.items, ...state.pending].map((i) => i.id));
+    const fresh = d.items.filter((i) => !known.has(i.id));
+    state.items = state.items.filter((i) => byId.has(i.id)).map((i) => byId.get(i.id));
+    state.pending = state.pending.filter((i) => byId.has(i.id)).map((i) => byId.get(i.id));
+    if (fresh.length) {
+      maybeNotify(fresh);
+      if (window.scrollY > 400) state.pending.push(...fresh);
+      else mergeItems(fresh);
+    }
+  }
+  renderSources();
+  renderStatus();
+  renderStats();
+  renderFeed();
+  showPendingBanner();
+}
+
+let snapshotLoaded = false;
+async function loadSnapshot() {
+  try {
+    const res = await fetch(`data.json?t=${Date.now()}`, { cache: 'no-store' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    applySnapshot(await res.json(), !snapshotLoaded);
+    snapshotLoaded = true;
+  } catch {
+    state.connected = false;
+    renderStatus();
+  }
+  $('#refreshBtn').classList.remove('spin');
+}
+
 function connect() {
+  if (STATIC) {
+    loadSnapshot();
+    setInterval(loadSnapshot, STATIC_RELOAD_MS);
+    return;
+  }
   const es = new EventSource('/api/stream');
   es.addEventListener('open', () => { state.connected = true; renderStatus(); });
   es.addEventListener('error', () => { state.connected = false; renderStatus(); });
@@ -536,6 +586,7 @@ $('#splitBar').addEventListener('pointerleave', hideTip);
 
 $('#refreshBtn').addEventListener('click', async () => {
   $('#refreshBtn').classList.add('spin');
+  if (STATIC) return loadSnapshot();
   try { await fetch('/api/refresh', { method: 'POST' }); } catch { /* ignore */ }
   setTimeout(() => $('#refreshBtn').classList.remove('spin'), 15000);
 });

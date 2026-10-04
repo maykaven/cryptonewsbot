@@ -33,6 +33,21 @@ Requires Node.js 22.9+.
 
 Each story shows its built-in score immediately, and that score is replaced in place once Claude's result arrives. If Claude errors repeatedly, the app switches to the built-in engine automatically.
 
+## Hosting on GitHub Pages
+
+The site can run entirely on GitHub, with no server to keep on. `.github/workflows/pages.yml` runs every 10 minutes. Each run fetches the feeds, scores and translates new stories with Claude, and publishes the dashboard plus a `data.json` snapshot to GitHub Pages. The published page reloads `data.json` every minute.
+
+One-time setup (repo must be public for free Pages):
+
+1. **Settings → Pages → Build and deployment → Source: GitHub Actions**
+2. **Settings → Secrets and variables → Actions → New repository secret**: `ANTHROPIC_API_KEY` (optional; without it the built-in scorer is used)
+3. **Actions → Update news site → Run workflow** (or push any commit)
+
+Notes:
+- GitHub can start scheduled runs several minutes late, so expect news within ~10–15 minutes.
+- GitHub pauses scheduled workflows in public repos after 60 days without repository activity. If the page's "Updated" time stops advancing, re-enable the workflow under **Actions**.
+- Each run reads the previously published `data.json` to keep history, so stories are only scored once.
+
 ## Configuration
 
 Copy `.env.example` to `.env`. Every setting is optional:
@@ -59,11 +74,13 @@ Copy `.env.example` to `.env`. Every setting is optional:
 ## Project layout
 
 ```
-server.js           HTTP server, polling loop, SSE broadcast, persistence (data/news.json)
+server.js           Local live server: polling loop, SSE broadcast, persistence (data/news.json)
 lib/feeds.js        Feed list + dependency-free RSS/Atom parser
 lib/sentiment.js    Built-in sentiment lexicon, coin tagging, market-impact weights
 lib/ai.js           Optional Claude scorer + Chinese translation (structured JSON output)
 lib/stats.js        Mood index, hourly trend, per-coin aggregates
+lib/pipeline.js     Fetch -> de-dupe -> score pipeline shared by server and static build
+scripts/build-static.js  Builds the GitHub Pages site (site/)
 public/             Dashboard (vanilla HTML/CSS/JS, no build step); UI strings in public/i18n.js
 test/               Unit tests: npm test
 ```
