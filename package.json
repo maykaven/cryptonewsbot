@@ -1,0 +1,17 @@
+{
+  "name": "cryptonewbot",
+  "version": "1.0.0",
+  "description": "Real-time crypto news aggregator with market sentiment scoring",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=22.9"
+  },
+  "optionalDependencies": {
+    "@anthropic-ai/sdk": "^0.131.0"
+  }
+}
