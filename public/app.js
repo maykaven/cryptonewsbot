@@ -14,7 +14,7 @@ const state = {
   stats: null,
   status: null,
   freshIds: new Set(),
-  filter: { q: '', sent: 'all', source: '', coin: '', sort: 'latest' },
+  filter: { q: '', sent: 'all', source: '', coin: '', sort: 'latest', type: '' },
   limit: PAGE,
   connected: false,
   notify: false,
@@ -280,6 +280,8 @@ function filtered() {
     if (f.sent !== 'all' && tone(it.score) !== f.sent) return false;
     if (f.source && it.sourceId !== f.source) return false;
     if (f.coin && !it.coins.includes(f.coin)) return false;
+    if (f.type === 'catalysts' && (it.kind !== 'catalyst' || it.reactive)) return false;
+    if (f.type && f.type !== 'catalysts' && !it.categories?.includes(f.type)) return false;
     if (q && !`${it.title} ${it.description} ${it.titleZh ?? ''} ${it.descZh ?? ''}`.toLowerCase().includes(q)) return false;
     return true;
   });
@@ -299,6 +301,13 @@ function storyHtml(it) {
         .map((d) => `<span class="drv ${d.weight > 0 ? 'bull-text' : 'bear-text'}">${esc(d.term)} ${signed(d.weight)}</span>`)
         .join('') || `<span class="drv">${esc(t().noSignals)}</span>`;
   const coins = it.coins.map((c) => `<button class="chip" data-coin="${esc(c)}">${esc(c)}</button>`).join('');
+  const types = it.reactive
+    ? it.kind === 'price' || it.kind === 'forecast'
+      ? `<span class="chip chip-muted" title="${esc(t().reactiveTitle)}">${esc(t().kinds[it.kind])}</span>`
+      : (it.categories ?? []).map((c) => `<span class="chip chip-muted" title="${esc(t().reactiveTitle)}">${esc(t().categories[c])}</span>`).join('')
+    : (it.categories ?? [])
+        .map((c) => `<button class="chip chip-type" data-type="${esc(c)}" title="${esc(t().catalystTitle)}">⚡ ${esc(t().categories[c])}</button>`)
+        .join('');
   const translated = zh() && it.titleZh;
   const untranslated = zh() && !it.titleZh ? `<span class="chip chip-muted" title="${esc(t().englishOnlyTitle)}">${esc(t().englishOnly)}</span>` : '';
   const desc = descOf(it);
@@ -309,7 +318,7 @@ function storyHtml(it) {
     </div>
     <div>
       <h3 class="story-title"><a href="${esc(it.link)}" target="_blank" rel="noopener noreferrer"${translated ? ` title="${esc(t().original)}: ${esc(it.title)}"` : ''}>${esc(titleOf(it))}</a></h3>
-      <div class="meta"><span class="src">${esc(it.source)}</span><time data-ts="${it.published}">${timeAgo(it.published)}</time>${untranslated}${coins}</div>
+      <div class="meta"><span class="src">${esc(it.source)}</span><time data-ts="${it.published}">${timeAgo(it.published)}</time>${untranslated}${types}${coins}</div>
       ${desc ? `<p class="desc">${esc(desc)}</p>` : ''}
       <div class="why">${why}</div>
     </div>
@@ -332,6 +341,23 @@ function renderFeed() {
 
 function renderSkeleton() {
   $('#feed').innerHTML = Array.from({ length: 6 }, () => '<li class="skeleton"></li>').join('');
+}
+
+function renderTypes() {
+  const sel = $('#type');
+  const d = t();
+  sel.innerHTML =
+    `<option value="">${esc(d.allTypes)}</option><option value="catalysts">${esc(d.catalystsOnly)}</option>` +
+    Object.entries(d.categories).map(([id, label]) => `<option value="${esc(id)}">${esc(label)}</option>`).join('');
+  sel.value = state.filter.type;
+}
+
+function setType(type) {
+  state.filter.type = type;
+  store.set('type', type);
+  $('#type').value = type;
+  state.limit = PAGE;
+  renderFeed();
 }
 
 function renderSources() {
@@ -428,6 +454,7 @@ function applyLang(lang) {
   renderStatus();
   renderStats();
   renderSources();
+  renderTypes();
   if (state.items.length) renderFeed();
   showPendingBanner();
 }
@@ -560,6 +587,7 @@ document.querySelectorAll('.seg button').forEach((b) =>
   }),
 );
 $('#source').addEventListener('change', (e) => { state.filter.source = e.target.value; state.limit = PAGE; renderFeed(); });
+$('#type').addEventListener('change', (e) => setType(e.target.value));
 $('#sort').addEventListener('change', (e) => { state.filter.sort = e.target.value; state.limit = PAGE; renderFeed(); });
 $('#moreBtn').addEventListener('click', () => { state.limit += PAGE; renderFeed(); });
 $('#newBanner').addEventListener('click', () => { flushPending(); window.scrollTo({ top: 0, behavior: 'smooth' }); });
@@ -569,6 +597,8 @@ $('#coinFilter').addEventListener('click', (e) => {
 document.addEventListener('click', (e) => {
   const c = e.target.closest('[data-coin]');
   if (c) setCoin(state.filter.coin === c.dataset.coin ? '' : c.dataset.coin);
+  const ty = e.target.closest('[data-type]');
+  if (ty) setType(state.filter.type === ty.dataset.type ? '' : ty.dataset.type);
 });
 function setCoin(coin) {
   state.filter.coin = coin;
@@ -621,6 +651,7 @@ setInterval(() => {
 // ── Boot ──
 applyTheme(store.get('theme'));
 state.notify = store.get('notify') === '1' && 'Notification' in window && Notification.permission === 'granted';
+state.filter.type = store.get('type') || '';
 const savedLang = store.get('lang');
 applyLang(savedLang || (/^zh\b/i.test(navigator.language) ? 'zh' : 'en'));
 renderSkeleton();

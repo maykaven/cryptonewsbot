@@ -19,7 +19,8 @@ Requires Node.js 22.9+.
 - **Per-story score**, with the reason behind it: either Claude's one-line rationale or the keywords that drove the built-in score.
 - **Market mood index**: a 24h average of story scores, weighted by market impact and by recency (a story's influence halves every 6h). Bitcoin and macro/regulatory news count more; altcoin-only news counts less; off-topic tech news barely counts.
 - **48h mood trend**, a bullish/neutral/bearish split, top movers, and **per-coin sentiment** (click a coin to filter).
-- Filters for search, sentiment, source and coin; sort by latest, most bullish, most bearish or biggest movers.
+- **News types**: every story is tagged as a catalyst (⚡ hack, regulation, ETF flows, economic data, macro, institutions, whales, exchanges, stablecoins) or an after-the-fact story (price recap, forecast, liquidation report). A 3-month event study (`node scripts/event-study.js`) found after-the-fact stories mostly appear after BTC has already moved, so they count half in the mood index. Pick **⚡ Catalysts only** to hide them.
+- Filters for search, sentiment, news type, source and coin; sort by latest, most bullish, most bearish or biggest movers.
 - Optional **desktop alerts** (bell icon) for stories scoring ±60 or more.
 - **English / 中文 toggle** in the header. The whole UI switches language, and Claude translates headlines, summaries and its reasoning into Simplified Chinese. Stories without a Claude translation (older than 24h, or when Claude is off) stay in English and are tagged 英文.
 - Light/dark theme, mobile layout.
@@ -79,8 +80,11 @@ lib/feeds.js        Feed list + dependency-free RSS/Atom parser
 lib/sentiment.js    Built-in sentiment lexicon, coin tagging, market-impact weights
 lib/ai.js           Optional Claude scorer + Chinese translation (structured JSON output)
 lib/stats.js        Mood index, hourly trend, per-coin aggregates
+lib/categories.js   News-type tagging (catalyst vs after-the-fact)
 lib/pipeline.js     Fetch -> de-dupe -> score pipeline shared by server and static build
 scripts/build-static.js  Builds the GitHub Pages site (site/)
+scripts/backtest.js      90-day sentiment vs BTC price backtest
+scripts/event-study.js   Which news types precede BTC moves
 public/             Dashboard (vanilla HTML/CSS/JS, no build step); UI strings in public/i18n.js
 test/               Unit tests: npm test
 ```

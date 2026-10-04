@@ -87,3 +87,18 @@ test('mood index decays older stories and weights impact', () => {
   assert.equal(stats.trend.length, 48);
   assert.equal(stats.coins[0].coin, 'BTC');
 });
+
+test('classifies catalysts vs reactive stories', async () => {
+  const { classify } = await import('../lib/categories.js');
+  const hack = classify('Exchange hacked, $200M stolen');
+  assert.deepEqual([hack.kind, hack.reactive], ['catalyst', false]);
+  assert.ok(hack.categories.includes('hack'));
+  assert.ok(classify('SEC approves spot Solana ETF').categories.includes('etf'));
+  assert.ok(classify('Bitcoin braces for CPI report').categories.includes('scheduled'));
+  assert.equal(classify('Bitcoin price surges 5% to $90K').kind, 'price');
+  assert.equal(classify('Bitcoin price surges 5% to $90K').reactive, true);
+  assert.equal(classify('Will Bitcoin hit $100K this month?').kind, 'forecast');
+  const liq = classify('$600M in liquidations as longs get wiped out');
+  assert.deepEqual([liq.kind, liq.reactive], ['catalyst', true]);
+  assert.equal(classify('A beginner guide to self-custody').kind, 'other');
+});
